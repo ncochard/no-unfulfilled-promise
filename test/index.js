@@ -16,6 +16,10 @@ ruleTester.run("no-unfulfilled-promise", rule, {
     ],
     invalid: [
         {
+            code: "new Promise();",
+            errors: ["Promise missing handler."]
+        },
+        {
             code: "new Promise(function(resolve, reject) { if (x) ; });",
             errors: [error]
         },
