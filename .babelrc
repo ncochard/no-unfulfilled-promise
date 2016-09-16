@@ -1,0 +1,13 @@
+{
+    "presets": ["babel-preset-es2015"],
+    "sourceMaps": true,
+    "plugins": [
+        [
+            "module-alias",
+            [
+                { "src": "./src", "expose": "~" },
+                { "src": "./test", "expose": "~test" }
+            ]
+        ]
+    ]
+}
