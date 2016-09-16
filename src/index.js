@@ -1,3 +1,34 @@
+function push(contextData, node) {
+    var result = {
+        parent: contextData,
+        node: node,
+        inPromise: contextData.inPromise,
+        deep: contextData.deep,
+        promiseFulfilled: contextData.promiseFulfilled,
+        resolveFunction: contextData.resolveFunction,
+        rejectFunction: contextData.rejectFunction,
+        errored: contextData.errored
+    };
+    if(result.inPromise) {
+        result.deep = contextData.deep + 1;
+    }
+    return result;
+}
+
+function pop(contextData) {
+    if(contextData.errored && contextData.parent) {
+        contextData.parent.errored = true;
+    }
+    return contextData.parent;
+}
+
+function getLocation(node, sourceCode) {
+    if (node.type === "ArrowFunctionExpression") {
+        return sourceCode.getTokenBefore(node.body);
+    }
+    return node.id || node;
+}
+
 export default {
     meta: {
         docs: {
@@ -15,21 +46,18 @@ export default {
         let contextData = {
             inPromise: false,
             node: null,
-            parent: null
+            parent: null,
+            deep: 0
         };
 
         return {
             onCodePathStart(codePath, node) {
-                contextData = {
-                    parent: contextData,
-                    node: node,
-                    inPromise: contextData.inPromise
-                };
+                contextData = push(contextData, node);
                 level++;
             },
             onCodePathEnd(codePath, node) {
                 level--;
-                contextData = contextData.parent;
+                contextData = pop(contextData);
             },
             FunctionExpression(node) {
                 const parent = node.parent;
@@ -44,18 +72,45 @@ export default {
                 if(node.params.length > 1) {
                     contextData.rejectFunction = node.params[1].name;
                 }
-                console.log(`${level}-${conditionLevel} ${contextData.inPromise} FunctionExpression: ${context.getSourceCode().getText(node)}`);
+                console.log(`${contextData.deep} ${contextData.promiseFulfilled} ${node.type}: ${context.getSourceCode().getText(node)}`);
+            },
+            "FunctionExpression:exit": function(node) {
+                if(contextData.inPromise && !contextData.promiseFulfilled && !contextData.errored) {
+                    contextData.errored = true;
+                    context.report({
+                        node,
+                        loc: getLocation(node, context.getSourceCode()).loc.start,
+                        message: `All execution path should call either "${contextData.resolveFunction}(...)" or "${contextData.rejectFunction}(...)".`
+                    });
+                }
             },
             CallExpression(node) {
-                //if(contextData.inPromise) {
-                    console.log(`${level}-${conditionLevel} ${contextData.inPromise} CallExpression: ${context.getSourceCode().getText(node)}`);
-                //}
+                if(contextData.inPromise && node.callee) {
+                    if(node.callee.name === contextData.resolveFunction) {
+                        contextData.promiseFulfilled = true;
+                    } else if(node.callee.name === contextData.rejectFunction) {
+                        contextData.promiseFulfilled = true;
+                    }
+                }
+                console.log(`${contextData.deep} ${contextData.promiseFulfilled} ${node.type}: ${context.getSourceCode().getText(node)}`);
             },
             IfStatement(node) {
+                console.log(`${contextData.deep} ${contextData.promiseFulfilled} ${node.type}: ${context.getSourceCode().getText(node)}`);
+                contextData = push(contextData, node);
                 conditionLevel++;
-                //if (contextData.inPromise) {
-                    console.log(`${level}-${conditionLevel} ${contextData.inPromise} IfStatement: ${context.getSourceCode().getText(node)}`);
-                //}
+            },
+            "IfStatement:exit": function(node) {
+                if(!contextData.promiseFulfilled && !contextData.errored) {
+                    contextData.errored = true;
+                    context.report({
+                        node,
+                        loc: getLocation(node, context.getSourceCode()).loc.start,
+                        message: `All execution path should call either "${contextData.resolveFunction}(...)" or "${contextData.rejectFunction}(...)".`
+                    });
+                }
+                console.log(`${contextData.deep} ${contextData.promiseFulfilled} ${node.type}: ${context.getSourceCode().getText(node)}`);
+                conditionLevel--;
+                contextData = pop(contextData);
             }
         };
     }
