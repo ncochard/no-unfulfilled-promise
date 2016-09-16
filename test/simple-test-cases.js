@@ -5,7 +5,7 @@ const ruleTester = new RuleTester();
 
 const error = "All execution path should call either \"resolve(...)\" or \"reject(...)\".";
 
-ruleTester.run("no-unfulfilled-promise", rule, {
+ruleTester.run("no-unfulfilled-promise simple test cases", rule, {
     valid: [
         "blah();",
         "function blah() { return Promise.resolve(); }",

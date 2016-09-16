@@ -1,9 +1,9 @@
 function push(contextData) {
     const result = Object.assign({}, contextData);
     result.parent = contextData;
-    if(result.inPromise) {
-        result.deep = contextData.deep + 1;
-    }
+    result.isPromiseHandler = false;
+    contextData.children = contextData.children || [];
+    contextData.children.push(result);
     return result;
 }
 
@@ -48,25 +48,19 @@ export default {
     },
 
     create(context) {
-        let level = 0;
-        let conditionLevel = 0;
         let contextData = {
             inPromise: false,
-            node: null,
-            parent: null,
-            deep: 0
+            parent: null
         };
 
         return {
             onCodePathStart() {
                 contextData = push(contextData);
-                level++;
             },
             onCodePathEnd() {
-                level--;
                 contextData = pop(contextData);
             },
-            NewExpression(node) {
+            "NewExpression": function(node) {
                 const isNewPromise =
                     node.callee &&
                     node.callee.type === "Identifier" &&
@@ -76,6 +70,7 @@ export default {
                         const handler = node.arguments[0];
                         if(handler.type === "FunctionExpression") {
                             contextData.inPromise = true;
+                            contextData.isPromiseHandler = true;
                             if(handler.params.length > 0) {
                                 contextData.resolveFunction = handler.params[0].name;
                             }
@@ -93,32 +88,45 @@ export default {
                 }
             },
             "FunctionExpression:exit": function(node) {
-                if(contextData.inPromise && !contextData.promiseFulfilled) {
-                    error(node, context, contextData);
+                if(contextData.parent && contextData.parent.isPromiseHandler) {
+                    const unfulfilledChildren = contextData.children.filter(c => !c.promiseFulfilled);
+                    contextData.promiseFulfilled = unfulfilledChildren.length === 0;
+                    if(!contextData.promiseFulfilled) {
+                        error(node, context, contextData);
+                    }
                 }
             },
-            CallExpression(node) {
+            "CallExpression": function(node) {
                 if(contextData.inPromise && node.callee) {
+                    contextData = push(contextData);
                     if(node.callee.name === contextData.resolveFunction) {
                         contextData.promiseFulfilled = true;
                     } else if(node.callee.name === contextData.rejectFunction) {
                         contextData.promiseFulfilled = true;
                     }
+                    contextData = pop(contextData);
                 }
-                console.log(`${contextData.deep} ${contextData.promiseFulfilled} ${node.type}: ${context.getSourceCode().getText(node)}`);
             },
-            IfStatement(node) {
-                console.log(`${contextData.deep} ${contextData.promiseFulfilled} ${node.type}: ${context.getSourceCode().getText(node)}`);
-                contextData = push(contextData);
-                conditionLevel++;
+            "IfStatement": function(node) {
+                if(contextData.inPromise) {
+                    contextData = push(contextData);
+                }
             },
             "IfStatement:exit": function(node) {
-                if(!contextData.promiseFulfilled) {
-                    error(node, context, contextData);
+                if(contextData.inPromise) {
+                    contextData.children = contextData.children || [];
+                    switch(contextData.children.length) {
+                        case 2:
+                            contextData.promiseFulfilled =
+                                contextData.children[0].promiseFulfilled &&
+                                contextData.children[1].promiseFulfilled;
+                            break;
+                        default:
+                            contextData.promiseFulfilled = false;
+                            break;
+                    }
+                    contextData = pop(contextData);
                 }
-                console.log(`${contextData.deep} ${contextData.promiseFulfilled} ${node.type}: ${context.getSourceCode().getText(node)}`);
-                conditionLevel--;
-                contextData = pop(contextData);
             }
         };
     }
