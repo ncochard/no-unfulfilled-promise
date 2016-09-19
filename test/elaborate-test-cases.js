@@ -6,6 +6,7 @@ import RuleTester from "eslint/lib/testers/rule-tester";
 const ruleTester = new RuleTester();
 
 const readFiles = folder => fs.readdirSync(folder)
+    .filter(file => file.toLowerCase().indexOf(".js") === (file.length - ".js".length))
     .map(file => path.join(folder, file))
     .map(file => fs.readFileSync(file, "utf8"));
 
